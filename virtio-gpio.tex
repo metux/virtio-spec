@@ -1,0 +1,257 @@
+\section{General Purpose IO Device}\label{sec:Device Types / General Purpose IO}
+
+The virtio gpio device is a general purpose IO device that supports a variable
+number of named IO lines that may be switched either as input or output and
+in logical level 0 or 1.
+
+\subsection{Device ID}\label{sec:Device Types / General Purpose IO / Device ID}
+  41
+
+\subsection{Version}\label{sec:Device Types / General Purpose IO / Version}
+  1
+
+\subsection{Device configuration layout}\label{sec:Device Types / General Purpose IO / Device configuration layout}
+
+General purpose IO configuration uses the following layout structure:
+
+\begin{lstlisting}
+struct virtio_gpio_config {
+    __u8    version;
+    __u8    reserved0;
+    __u16   num_gpios;
+    __u32   names_size;
+    __u8    reserved1[24];
+    __u8    name[32];
+    __u8    line_names[];
+};
+\end{lstlisting}
+
+\begin{itemize}
+    \item for \field{version} field currently only value 1 supported.
+    \item the \field{line names block} holds a stream of zero-terminated strings,
+        containing the individual line names in ASCII. line names must unique.
+    \item unspecified fields are reserved for future use and should be zero.
+    \item future versions may extend this configuration space by additional fields.
+\end{itemize}
+
+\subsection{Virtqueues}\label{sec:Device Types / General Purpose IO / Virtqueues}
+\begin{description}
+\item[0] rx (device to CPU)
+\item[1] tx (CPU to device)
+\end{description}
+
+The virtqueues transport messages of the type struct virtio_gpio_msg from device to CPU or CPU to device.
+
+\subsubsection{Virtqueues}\label{sec:Device Types / General Purpose IO / Virtqueues / Message format}
+
+The queues transport messages of the struct virtio_gpio_msg:
+
+\begin{lstlisting}
+struct virtio_gpio_msg {
+    __le16  type;
+    __le16  pin;
+    __le32  value;
+};
+\end{lstlisting}
+
+\subsubsection{Message types}\label{sec:Device Types / General Purpose IO / Virtqueues / Message types}
+
+\begin{lstlisting}
+/* messages types: driver -> device */
+#define VIRTIO_GPIO_MSG_CPU_REQUEST             0x0001
+#define VIRTIO_GPIO_MSG_CPU_DIRECTION_INPUT     0x0002
+#define VIRTIO_GPIO_MSG_CPU_DIRECTION_OUTPUT    0x0003
+#define VIRTIO_GPIO_MSG_CPU_GET_DIRECTION       0x0004
+#define VIRTIO_GPIO_MSG_CPU_GET_LEVEL           0x0005
+#define VIRTIO_GPIO_MSG_CPU_SET_LEVEL           0x0006
+
+/* message types: device -> driver */
+#define VIRTIO_GPIO_MSG_DEVICE_LEVEL            0x0011
+
+/* reply mask: device sets this bit on replies (along with request's message type)
+#define VIRTIO_GPIO_MSG_REPLY                   0x8000
+\end{lstlisting}
+
+\devicenormative{\subsubsection}{Virtqueues}{Device Types / General Purpose IO / Virtqueues}
+
+The device MUST read from the tx queue and write to rx queue.
+
+The device MUST NOT write to the tx queue.
+
+\drivernormative{\subsubsection}{Virtqueues}{Device Types / General Purpose IO / Virtqueues}
+
+The device MUST read from the rx queue and write to tx queue.
+
+The device MUST NOT write to the rx queue.
+
+\subsection{Data flow}\label{sec:Device Types / General Purpose IO / Data flow}
+
+\begin{itemize}
+    \item all operations, except \field{VIRTIO_GPIO_MSG_DEVICE_LEVEL}, are initiated by CPU (tx queue)
+    \item device replies with the orinal \field{type} value OR'ed with \field{VIRTIO_GPIO_MSG_REPLY} (rx queue)
+    \item requests are processed and replied in the they had been sent
+    \item async notifications by the device may be interleaved with request responses
+    \item VIRTIO_GPIO_MSG_DEVICE_LEVEL is only sent asynchronously from device to CPU
+    \item in replies, a negative \field{value} field denotes an Unix-style / POSIX errno code
+    \item the actual error values \textit{(despite being negative or not)} is only of informational
+          nature -- a device or vm host \textit{may} report more detailed error cause but is not required to.
+    \item valid direction values are: 0 = output, 1 = input
+    \item valid line level values are: 0 = inactive, 1 = active
+    \item CPU should not send messages with unspecified \field{type} value
+    \item CPU should ignore ignore messages with unspecified \field{type} value
+\end{itemize}
+
+
+\subsubsection{VIRTIO_GPIO_MSG_CPU_REQUEST}\label{sec:Device Types / General Purpose IO / Data flow / VIRTIO-GPIO-MSG-CPU-REQUEST}
+
+Notify the device that given line number is going to be used.
+
+\begin{tabular}{ll}
+    \hline
+    \textbf{request:} & \\
+    \hline
+    \field{line}  field: & logical line number \\
+    \field{value} field: & unused (should be zero) \\
+    \textbf{reply:} & \\
+    \hline
+    \field{value} field: & POSIX errno code (0 = success, non-zero = error) \\
+    \hline
+\end{tabular}
+
+\subsubsection{VIRTIO_GPIO_MSG_CPU_DIRECTION_INPUT}\label{sec:Device Types / General Purpose IO / Data flow / VIRTIO-GPIO-MSG-CPU-DIRECTION-INPUT}
+
+Set line line direction to input.
+
+\begin{tabular}{ll}
+    \hline
+    \textbf{request:} \\
+    \hline
+    \field{line}  field: & logical line number \\
+    \field{value} field: & unused (should be zero) \\
+    \hline
+    \textbf{reply:} & \\
+    \hline
+    \field{value} field: & POSIX errno code (0 = success, non-zero = error) \\
+    \hline
+\end{tabular}
+
+\subsubsection{VIRTIO_GPIO_MSG_CPU_DIRECTION_OUTPUT}\label{sec:Device Types / General Purpose IO / Data flow / VIRTIO-GPIO-MSG-CPU-DIRECTION-OUTPUT}
+
+Set line direction to output and given line level.
+
+\begin{tabular}{ll}
+    \hline
+    \textbf{request:} \\
+    \hline
+    \field{line}  field: & logical line number \\
+    \field{value} field: & output level (0=inactive, 1=active) \\
+    \hline
+    \textbf{reply:} & \\
+    \hline
+    \field{value} field: & POSIX errno code (0 = success, non-zero = error) \\
+    \hline
+\end{tabular}
+
+\subsubsection{VIRTIO_GPIO_MSG_CPU_GET_DIRECTION}\label{sec:Device Types / General Purpose IO / Data flow / VIRTIO-GPIO-MSG-CPU-GET-DIRECTION}
+
+Retrieve line direction.
+
+\begin{tabular}{ll}
+    \hline
+    \textbf{request:} & \\
+    \hline
+    \field{line}  field: & logical line number \\
+    \field{value} field: & unused (should be zero) \\
+    \hline
+    \textbf{reply:} & \\
+    \hline
+    \field{value} field: & direction (0=output, 1=input) or POSIX errno code \\
+    \hline
+\end{tabular}
+
+\subsubsection{VIRTIO_GPIO_MSG_CPU_GET_LEVEL}\label{sec:Device Types / General Purpose IO / Data flow / VIRTIO-GPIO-MSG-CPU-GET-LEVEL}
+
+Retrieve line level.
+
+\begin{tabular}{ll}
+    \hline
+    \textbf{request:} & \\
+    \hline
+    \field{line}  field: & logical line number \\
+    \field{value} field: & unused (should be zero) \\
+    \hline
+    \textbf{reply:} & \\
+    \hline
+    \field{value} field: & line level (0=inactive, 1=active) or errno code \\
+    \hline
+\end{tabular}
+
+\subsubsection{VIRTIO_GPIO_MSG_CPU_SET_LEVEL}\label{sec:Device Types / General Purpose IO / Data flow / VIRTIO-GPIO-MSG-CPU-SET-LEVEL}
+
+Set line level (output only)
+
+\begin{tabular}{ll}
+    \hline
+    \textbf{request:} & \\
+    \hline
+    \field{line}  field: & logical line number \\
+    \field{value} field: & line level (0=inactive, 1=active) \\
+    \hline
+    \textbf{reply:} & \\
+    \hline
+    \field{value} field: & new line level or (negative) POSIX errno code \\
+    \hline
+\end{tabular}
+
+\subsubsection{VIRTIO_GPIO_MSG_DEVICE_LEVEL}\label{sec:Device Types / General Purpose IO / Data flow / VIRTIO-GPIO-MSG-DEVICE-LEVEL}
+
+Async notification from device to CPU: line level changed
+
+\begin{tabular}{ll}
+    \hline
+    \textbf{request:} & \\
+    \hline
+    \field{line}  field: & logical line number \\
+    \field{value} field: & unused (should be zero) \\
+    \hline
+    \textbf{reply:} & \\
+    \field{value} field: & line level (0=inactive, 1=active) \\
+    \hline
+\end{tabular}
+
+\devicenormative{\subsubsection}{Data flow}{Device Types / General Purpose IO / Data flow}
+
+The device MUST reply to all driver requests in they had been sent.
+
+The device MUST copy the \field{line} field from the request to its reply.
+
+Except for async notification, the device MUST reply the orignal message type, but with the highest bit set
+(or'ed with VIRTIO_GPIO_MSG_REPLY)
+
+In case of error the device MUST fill an negative value into the \field{value} field, it SHOULD use
+an fitting POSIX / Unix errno value when applicable.
+
+On switching to output, the device SHOULD set internal output level before switching the line to output.
+
+The device SHOULD send VIRTIO_GPIO_MSG_DEVICE_LEVEL message for a particular line when it is in input
+direction and line level changes.
+
+\drivernormative{\subsubsection}{Data flow}{Device Types / General Purpose IO / Data flow}
+
+The driver MUST NOT send VIRTIO_GPIO_MSG_DEVICE_LEVEL and MUST NOT set the highest bit in the message type.
+
+The driver MUST NOT send messages with types not defined in this specification.
+
+\subsection{Future versions}\label{sec:Device Types / General Purpose IO / Future versions}
+
+\begin{itemize}
+    \item future versions must increment the ``version`` value
+    \item the basic data structures (config space, message format) should remain
+          backwards compatible, but may increased in size or use reserved fields
+    \item device needs to support commands in older versions
+    \item CPU should not send commands of newer versions that the device doesn't support
+\end{itemize}
+
+\subsection{Feature bits}\label{sec:Device Types / General Purpose IO / Feature bits}
+
+There are currently no feature bits defined for this device, but may be added in future versions.
