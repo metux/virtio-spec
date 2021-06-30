@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 export SPECDOC=${SPECDOC:-`cat REVISION`}
 export DATESTR=${DATESTR:-`cat REVISION-DATE`}
